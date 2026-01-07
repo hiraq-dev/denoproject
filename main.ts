@@ -7,7 +7,7 @@ const kv = await Deno.openKv();
 // Set a record by key
 app.post("/kv/set/:key{.*}", async (c) => {
   checkToken(c);
-  // Remove leading and trailing slashes before splitting
+  // Remove leading/trailing slashes to ensure the key array is clean
   const keyPath = c.req.param("key").replace(/^\/|\/$/g, "");
   const body = await c.req.json();
   const result = await kv.set(keyPath.split('/'), body);
@@ -34,12 +34,13 @@ app.get("/kv/list/:key{.*}", async (c) => {
 });
 
 app.get("/dump/:key{.*}", async (c) => {
-  const method = c.req.method;
-  const url = c.req.url;
-  const path = c.req.path;
-  const query = c.req.query();
-  const headers = c.req.header();
-  return c.json({ method, url, path, headers, query });
+  return c.json({
+    method: c.req.method,
+    url: c.req.url,
+    path: c.req.path,
+    headers: c.req.header(),
+    query: c.req.query()
+  });
 });
 
 function checkToken(c) {
