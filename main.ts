@@ -1,154 +1,224 @@
-import { Hono } from "https://deno.land/x/hono@v3.4.1/mod.ts";
-import { HTTPException } from "https://deno.land/x/hono@v3.12.10/http-exception.ts";
+# A Python Deno KV Admin tool using web services
 
-const app = new Hono();
-const kv = await Deno.openKv();
+# Download these to a folder:
 
-// Basic KV operations to support admin interface
+# https://www.pg4e.com/code/kvadmin.py
+# https://www.pg4e.com/code/hidden-dist.py (If needed)
 
-// Set a record by key (POST body is JSON)
-// https://pg4e-deno-kv-api-10.deno.dev/kv/set/books/Hamlet?key=123
-app.post("/kv/set/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const body = await c.req.json();
-  const result = await kv.set(key.split('/'), body);
-  return c.json(result);
-});
+# (If needed)
+# copy hidden-dist.py to hidden.py
+# edit hidden.py and put in your url and token
 
-// Get a record by key
-// https://pg4e-deno-kv-api-10.deno.dev/kv/get/books/Hamlet?key=123
-app.get("/kv/get/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const result = await kv.get(key.split('/'));
-  return c.json(result);
-});
+import urllib.request
+import urllib.parse
+import urllib.error
+import json
+import hidden
+import socket
 
-// List records with a key prefix
-// https://pg4e-deno-kv-api-10.deno.dev/kv/list/books
-app.get("/kv/list/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const cursor = c.req.query("cursor");
-  const extra = {'limit': 100};
-  if ( typeof cursor == 'string' && cursor.length > 0 ) {
-    extra['cursor'] = cursor;
-  }
-  const iter = await kv.list({ prefix: key.split('/') }, extra );
-  const records = [];
-  for await (const entry of iter) {
-    records.push(entry);
-  }
-  return c.json({'records': records, 'cursor': iter.cursor});
-});
+def prettyjson(status, text):
+    """Pretty print JSON response with status code handling"""
+    if status == 200:
+        try:
+            print(json.dumps(json.loads(text), indent=2))
+        except Exception as e:
+            print(text)
+    else :
+        print(text)
+        print()
+        print("Error, status=", status)
 
-// Delete a record
-// https://pg4e-deno-kv-api-10.deno.dev/kv/delete/books/Hamlet?key=123
-app.delete("/kv/delete/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const result = await kv.delete(key.split('/'));
-  return c.json(result);
-});
+def addtoken(url, secrets):
+    """Add authentication token to URL"""
+    queryurl = url + "?token=" + secrets['token']
+    return queryurl
 
-// Delete a prefix
-// https://pg4e-deno-kv-api-10.deno.dev/kv/delete/books/nonfiction?key=123
-app.delete("/kv/delete_prefix/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const iter = await kv.list({ prefix: key.split('/') });
-  const keys = [];
-  for await (const entry of iter) {
-    kv.delete(entry.key);
-    keys.push(entry.key);
-  }
-  console.log("Keys with prefix", key, "deleted:", keys.length);
-  return c.json({'keys': keys});
-});
+def readjson(prompt):
+    """Read multi-line JSON input from user"""
+    print(prompt)
+    inp = None
+    text = ""
+    while inp != "":
+        inp = input().strip()
+        text += inp
+    return text
 
-// Full database reset
-// https://pg4e-deno-kv-api-10.deno.dev/kv/full_reset_42?key=123
-app.delete("/kv/full_reset_42", async (c) => {
-  checkToken(c);
-  const iter = await kv.list({ prefix: [] });
-  const keys = [];
-  for await (const entry of iter) {
-    kv.delete(entry.key);
-    keys.push(entry);
-  }
-  console.log("Database reset keys deleted:", keys.length);
-  return c.json({'keys': keys});
-});
+def parsejson(text):
+    """Parse JSON text with error handling"""
+    try :
+        data = json.loads(text)
+        return data
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        print(f"Error message: {e.msg}")
+        print(f"Error position: {e.pos}")
+        print(f"Error line number: {e.lineno}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
-// Dump the request object for learning and debugging
-// https://pg4e-deno-kv-api-10.deno.dev/dump/stuff/goes_here?key=123
-app.all('/dump/*', async (c) => {
-  const req = c.req
+    return None
 
-  // Request details
-  const method = req.method
-  const url = req.url
-  const path = req.path
-  const query = req.query()
-  const headers: Record<string, string> = {}
-  for (const [key, value] of req.raw.headers.entries()) {
-    headers[key] = value
-  }
+# Main program logic
 
-  // Try to parse body as JSON, otherwise fallback to text
-  let body: any = null
-  try {
-    body = await req.json()
-  } catch {
-    try {
-      body = await req.text()
-    } catch {
-      body = null
-    }
-  }
+secrets = hidden.denokv()
+showurl = True
 
-  const dump = {
-    method,
-    url,
-    path,
-    headers,
-    query,
-    body,
-  }
 
-  return c.json(dump, 200)
-});
+url = secrets['url'] + '/dump';
+print('Verifying connection to', url)
+try:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        text = response.read().decode('utf-8')
+        status = response.status
+except Exception as e:
+    print()
+    print('Unable to communicate with Deno.  Sometimes it takes a while to start the')
+    print('the Deno instance after it has been idle.  You might want to access the url')
+    print('below in a browser, wait 30 seconds,  and then restart kvadmin.');
+    print()
+    print(url)
+    print()
+    quit()
 
-// Make sure we return the correct HTTP Status code when we throw an exception
-app.onError((err, c) => {
-  if (err instanceof HTTPException) {
-    return c.text(err.message, err.status);
-  }
-  return c.text('Internal Server Error', 500);
-});
+def urlerror(e):
+    if isinstance(e, urllib.error.HTTPError) :
+        print('HTTP Error:', e.code)
+        if e.code == 401 :
+            print("You might have an incorrect token value")
+        if e.code == 500 :
+            print("The code in the server is failing somehow")
+    elif isinstance(e, urllib.error.URLError) :
+        if isinstance(e.reason, socket.timeout):
+            print('Socket timed out')
+        else:
+            print('URL Error:', error.reason)
+    else:
+        print(e, type(e))
 
-// Insure security - The autograder will have you change this value
-function checkToken(c) {
-  const token = c.req.query("token");
-  if ( token == '2604_8461e8:cebb65' ) return true;
-  throw new HTTPException(401, { message: 'Missing or invalid token' }); 
-}
+while True:
 
-// If you are putting up your own server you can either delete this
-// CRON entry or change it to be once per month with "0 0 1 * *" as
-// the CRON string
-Deno.cron("Hourly DB Reset", "0 * * * *", async () => {
-  const ckv = await Deno.openKv();
-  const iter = await ckv.list({ prefix: [] });
-  const keys = [];
-  let count = 0;
-  for await (const entry of iter) {
-    ckv.delete(entry.key);
-    count++;
-    if ( count < 10 ) keys.push(entry.key);
-  }
-  console.log("Hourly reset keys deleted:", count, keys);
-});
+    print()
+    try:
+        cmd = input('Enter command: ').strip()
+    except KeyboardInterrupt:
+        print()
+        break
+    except EOFError:
+        print()
+        break
 
-Deno.serve(app.fetch);
+    if cmd.startswith('quit') : break
+
+    pieces = cmd.split(' ', 2)
+
+    # set /books/Hamlet
+    # set /books/Hamlet {}
+    # https://kv-admin-api.pg4e.com/kv/set/books/Hamlet?token=123
+
+    if len(pieces) >= 2 and pieces[0] == 'set' :
+        url = (secrets['url'] + '/kv/set' + pieces[1]
+          + '?token=' + secrets['token'] )
+        if len(pieces) == 3 :
+            text = pieces[2]
+        else:
+            text = readjson("Enter json (finish with a blank line:")
+        data = parsejson(text)
+        if data == None : continue
+
+        body = json.dumps(data, indent=2).encode('utf-8')
+        headers = {'Content-type': 'application/json; charset=UTF-8'}
+
+        if ( showurl ) : print(url)
+
+        req = urllib.request.Request(url, data=body, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                text = response.read().decode('utf-8')
+                status = response.status
+                prettyjson(status, text)
+        except Exception as error:
+            urlerror(error)
+        continue
+
+    # get /books/Hamlet
+    # https://kv-admin-api.pg4e.com/kv/get/books/Hamlet?token=123
+
+    # list /books
+    # https://kv-admin-api.pg4e.com/kv/books?token=123
+
+    if len(pieces) == 2 and (pieces[0] == 'get' or pieces[0] == 'list') :
+        url = ( secrets['url'] + '/kv/' + pieces[0] + pieces[1] +
+          '?token=' + secrets['token'] )
+        if ( showurl ) : print(url)
+
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                text = response.read().decode('utf-8')
+                status = response.status
+                print(status)
+                try:
+                    data = json.loads(text)
+                    pretty_json_string = json.dumps(data, indent=4)
+                    print(pretty_json_string)
+                except Exception as e:
+                    print(text)
+        except Exception as error:
+            urlerror(error)
+        continue
+
+    # delete /books/Hamlet
+    # https://kv-admin-api.pg4e.com/kv/delete/books/Hamlet?token=123
+
+    # delete_prefix /books
+    # https://kv-admin-api.pg4e.com/kv/delete_prefix/books?token=123
+
+    if len(pieces) == 2 and (pieces[0] == 'delete' or pieces[0] == 'delete_prefix') :
+
+        url = ( secrets['url'] + '/kv/' + pieces[0] + pieces[1] +
+          '?token=' + secrets['token'] )
+
+        if ( showurl ) : print(url)
+
+        req = urllib.request.Request(url, method='DELETE')
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                text = response.read().decode('utf-8')
+                status = response.status
+                print('Status:', status)
+                print(text)
+        except Exception as error:
+            urlerror(error)
+        continue
+
+    if len(pieces) == 1 and pieces[0] == 'show' :
+        showurl = True
+        continue
+
+    if len(pieces) == 1 and pieces[0] == 'hide' :
+        showurl = False
+        continue
+
+    if len(pieces) == 1 and pieces[0] == 'samples' :
+        print()
+        print('{"author": "Bill", "title": "Hamlet", "isbn": "42", "lang": "ang"}')
+        print('{"author": "Katie", "title": "Wizards", "isbn": "6848", "lang": "en"}')
+        print('{"author": "Chuck", "title": "PY4E", "isbn": "8513", "lang": "en"}')
+        print('{"author": "Kristen", "title": "PI", "isbn": "8162", "lang": "en"}')
+        print('{"author": "James", "title": "Wisdom", "isbn": "3857", "lang": "en"}')
+        print('{"author": "Barb", "title": "Mind", "isbn": "8110", "lang": "en"}')
+        print('{"author": "Vittore", "title": "Tutti", "isbn": "1730", "lang": "es"}')
+        print('{"author": "Chuck", "title": "Net", "isbn": "8151", "lang": "en"}')
+        print()
+        continue
+
+    print()
+    print('Invalid command, please try:')
+    print('')
+    print('  quit')
+    print('  samples')
+    print('  set /books/Hamlet')
+    print('  get /books/Hamlet')
+    print('  list /books')
+    print('  delete /books/Hamlet')
+    print('  delete_prefix /books')
+
