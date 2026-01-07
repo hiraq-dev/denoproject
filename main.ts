@@ -39,12 +39,22 @@ app.post("/kv/set/:key{.*}", async (c) => {
 
 // Get a record by key
 // https://pg4e-deno-kv-api-10.deno.dev/kv/get/books/Hamlet?key=123
-app.get("/kv/get/:key{.*}", async (c) => {
+/*app.get("/kv/get/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
   const result = await kv.get(key.split('/'));
   return c.json(result);
+});*/
+app.get("/kv/get/:key{.*}", async (c) => {
+  checkToken(c);
+  const key = c.req.param("key");
+
+  const fixedKey = normalizeKey(key);
+  const result = await kv.get(fixedKey);
+
+  return c.json(result);
 });
+
 
 // List records with a key prefix
 // https://pg4e-deno-kv-api-10.deno.dev/kv/list/books
