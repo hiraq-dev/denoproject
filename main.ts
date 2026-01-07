@@ -8,9 +8,10 @@ const kv = await Deno.openKv();
    KEY NORMALIZATION (SAFE)
    ========================= */
 function normalizeKey(key: string): string[] {
-  const parts = key.split('/');
+  // Remove empty parts caused by leading '/'
+  const parts = key.split('/').filter(p => p.length > 0);
 
-  // Only normalize PY4E keys (Coursera requirement)
+  // Coursera-specific fix
   if (
     parts.length === 2 &&
     parts[0] === "py4e" &&
@@ -21,6 +22,7 @@ function normalizeKey(key: string): string[] {
 
   return parts;
 }
+
 
 /* =========================
    SET
