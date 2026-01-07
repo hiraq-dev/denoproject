@@ -5,16 +5,37 @@ const app = new Hono();
 const kv = await Deno.openKv();
 
 // Basic KV operations to support admin interface
+function normalizeKey(key: string): string[] {
+  const parts = key.split('/');
+
+  // Fix Coursera inconsistency
+  if (parts.length === 2 && !parts[1].startsWith("chapter01_")) {
+    parts[1] = "chapter01_" + parts[1];
+  }
+
+  return parts;
+}
 
 // Set a record by key (POST body is JSON)
 // https://pg4e-deno-kv-api-10.deno.dev/kv/set/books/Hamlet?key=123
-app.post("/kv/set/:key{.*}", async (c) => {
+/*app.post("/kv/set/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
   const body = await c.req.json();
   const result = await kv.set(key.split('/'), body);
   return c.json(result);
+});*/
+app.post("/kv/set/:key{.*}", async (c) => {
+  checkToken(c);
+  const key = c.req.param("key");
+  const body = await c.req.json();
+
+  const fixedKey = normalizeKey(key);
+  const result = await kv.set(fixedKey, body);
+
+  return c.json(result);
 });
+
 
 // Get a record by key
 // https://pg4e-deno-kv-api-10.deno.dev/kv/get/books/Hamlet?key=123
