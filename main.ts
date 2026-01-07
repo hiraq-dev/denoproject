@@ -4,27 +4,27 @@ import { HTTPException } from "https://deno.land/x/hono@v3.12.10/http-exception.
 const app = new Hono();
 const kv = await Deno.openKv();
 
-// Basic KV operations to support admin interface
+/* =========================
+   KEY NORMALIZATION (SAFE)
+   ========================= */
 function normalizeKey(key: string): string[] {
   const parts = key.split('/');
 
-  // Fix Coursera inconsistency
-  if (parts.length === 2 && !parts[1].startsWith("chapter01_")) {
+  // Only normalize PY4E keys (Coursera requirement)
+  if (
+    parts.length === 2 &&
+    parts[0] === "py4e" &&
+    !parts[1].startsWith("chapter01_")
+  ) {
     parts[1] = "chapter01_" + parts[1];
   }
 
   return parts;
 }
 
-// Set a record by key (POST body is JSON)
-// https://pg4e-deno-kv-api-10.deno.dev/kv/set/books/Hamlet?key=123
-/*app.post("/kv/set/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const body = await c.req.json();
-  const result = await kv.set(key.split('/'), body);
-  return c.json(result);
-});*/
+/* =========================
+   SET
+   ========================= */
 app.post("/kv/set/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
@@ -36,15 +36,9 @@ app.post("/kv/set/:key{.*}", async (c) => {
   return c.json(result);
 });
 
-
-// Get a record by key
-// https://pg4e-deno-kv-api-10.deno.dev/kv/get/books/Hamlet?key=123
-/*app.get("/kv/get/:key{.*}", async (c) => {
-  checkToken(c);
-  const key = c.req.param("key");
-  const result = await kv.get(key.split('/'));
-  return c.json(result);
-});*/
+/* =========================
+   GET
+   ========================= */
 app.get("/kv/get/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
@@ -55,131 +49,130 @@ app.get("/kv/get/:key{.*}", async (c) => {
   return c.json(result);
 });
 
-
-// List records with a key prefix
-// https://pg4e-deno-kv-api-10.deno.dev/kv/list/books
+/* =========================
+   LIST
+   ========================= */
 app.get("/kv/list/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
   const cursor = c.req.query("cursor");
-  const extra = {'limit': 100};
-  if ( typeof cursor == 'string' && cursor.length > 0 ) {
-    extra['cursor'] = cursor;
-  }
-  const iter = await kv.list({ prefix: key.split('/') }, extra );
+
+  const prefix = normalizeKey(key);
+  const options: any = { limit: 100 };
+  if (cursor) options.cursor = cursor;
+
+  const iter = await kv.list({ prefix }, options);
   const records = [];
   for await (const entry of iter) {
     records.push(entry);
   }
-  return c.json({'records': records, 'cursor': iter.cursor});
+
+  return c.json({ records, cursor: iter.cursor });
 });
 
-// Delete a record
-// https://pg4e-deno-kv-api-10.deno.dev/kv/delete/books/Hamlet?key=123
+/* =========================
+   DELETE
+   ========================= */
 app.delete("/kv/delete/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
-  const result = await kv.delete(key.split('/'));
+
+  const fixedKey = normalizeKey(key);
+  const result = await kv.delete(fixedKey);
+
   return c.json(result);
 });
 
-// Delete a prefix
-// https://pg4e-deno-kv-api-10.deno.dev/kv/delete/books/nonfiction?key=123
+/* =========================
+   DELETE PREFIX
+   ========================= */
 app.delete("/kv/delete_prefix/:key{.*}", async (c) => {
   checkToken(c);
   const key = c.req.param("key");
-  const iter = await kv.list({ prefix: key.split('/') });
+
+  const prefix = normalizeKey(key);
+  const iter = await kv.list({ prefix });
   const keys = [];
+
   for await (const entry of iter) {
-    kv.delete(entry.key);
+    await kv.delete(entry.key);
     keys.push(entry.key);
   }
-  console.log("Keys with prefix", key, "deleted:", keys.length);
-  return c.json({'keys': keys});
+
+  return c.json({ keys });
 });
 
-// Full database reset
-// https://pg4e-deno-kv-api-10.deno.dev/kv/full_reset_42?key=123
+/* =========================
+   FULL RESET
+   ========================= */
 app.delete("/kv/full_reset_42", async (c) => {
   checkToken(c);
   const iter = await kv.list({ prefix: [] });
   const keys = [];
+
   for await (const entry of iter) {
-    kv.delete(entry.key);
-    keys.push(entry);
+    await kv.delete(entry.key);
+    keys.push(entry.key);
   }
-  console.log("Database reset keys deleted:", keys.length);
-  return c.json({'keys': keys});
+
+  return c.json({ keys });
 });
 
-// Dump the request object for learning and debugging
-// https://pg4e-deno-kv-api-10.deno.dev/dump/stuff/goes_here?key=123
-app.all('/dump/*', async (c) => {
-  const req = c.req
+/* =========================
+   DUMP (BOTH ROUTES)
+   ========================= */
+async function dumpHandler(c) {
+  const req = c.req;
 
-  // Request details
-  const method = req.method
-  const url = req.url
-  const path = req.path
-  const query = req.query()
-  const headers: Record<string, string> = {}
-  for (const [key, value] of req.raw.headers.entries()) {
-    headers[key] = value
-  }
-
-  // Try to parse body as JSON, otherwise fallback to text
-  let body: any = null
+  let body = "";
   try {
-    body = await req.json()
+    body = await req.json();
   } catch {
     try {
-      body = await req.text()
-    } catch {
-      body = null
-    }
+      body = await req.text();
+    } catch {}
   }
 
-  const dump = {
-    method,
-    url,
-    path,
-    headers,
-    query,
-    body,
-  }
-
-  return c.json(dump, 200)
-});
-
-// Make sure we return the correct HTTP Status code when we throw an exception
-app.onError((err, c) => {
-  if (err instanceof HTTPException) {
-    return c.text(err.message, err.status);
-  }
-  return c.text('Internal Server Error', 500);
-});
-
-// Insure security - The autograder will have you change this value
-function checkToken(c) {
-  const token = c.req.query("token");
-  if ( token == '2604_8461e8:cebb65' ) return true;
-  throw new HTTPException(401, { message: 'Missing or invalid token' }); 
+  return c.json({
+    method: req.method,
+    url: req.url,
+    path: req.path,
+    headers: Object.fromEntries(req.raw.headers),
+    query: req.query(),
+    body
+  });
 }
 
-// If you are putting up your own server you can either delete this
-// CRON entry or change it to be once per month with "0 0 1 * *" as
-// the CRON string
-Deno.cron("Hourly DB Reset", "0 * * * *", async () => {
-  const ckv = await Deno.openKv();
-  const iter = await ckv.list({ prefix: [] });
-  const keys = [];
-  let count = 0;
-  for await (const entry of iter) {
-    ckv.delete(entry.key);
-    count++;
-    if ( count < 10 ) keys.push(entry.key);
+app.all("/dump", dumpHandler);
+app.all("/dump/*", dumpHandler);
+
+/* =========================
+   ERROR HANDLING
+   ========================= */
+app.onError((err, c) => {
+  if (err instanceof HTTPException) {
+    return c.json({ error: err.message }, err.status);
   }
-  console.log("Hourly reset keys deleted:", count, keys);
+  return c.json({ error: "Internal Server Error" }, 500);
+});
+
+/* =========================
+   TOKEN CHECK
+   ========================= */
+function checkToken(c) {
+  const token = c.req.query("token");
+  if (token === "2604_8461e8:cebb65") return true;
+  throw new HTTPException(401, { message: "Missing or invalid token" });
+}
+
+/* =========================
+   CRON (SAFE)
+   ========================= */
+Deno.cron("Hourly DB Reset", "0 * * * *", async () => {
+  const iter = await kv.list({ prefix: [] });
+  for await (const entry of iter) {
+    await kv.delete(entry.key);
+  }
 });
 
 Deno.serve(app.fetch);
