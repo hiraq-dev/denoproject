@@ -165,14 +165,4 @@ function checkToken(c) {
   throw new HTTPException(401, { message: "Missing or invalid token" });
 }
 
-/* =========================
-   CRON (SAFE)
-   ========================= */
-Deno.cron("Hourly DB Reset", "0 * * * *", async () => {
-  const iter = await kv.list({ prefix: [] });
-  for await (const entry of iter) {
-    await kv.delete(entry.key);
-  }
-});
-
 Deno.serve(app.fetch);
