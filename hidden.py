@@ -1,6 +1,6 @@
 # hidden.py
 def denokv():
     return {
-        "token": "2604_8461e8:cebb65",
-        "url": "https://hiraqaiser-denoproject-53.deno.dev" 
+        "token": "2604_f18abd:e32f27",
+        "url": "https://hiraqaiser-denoproject-32.deno.dev" 
     }
